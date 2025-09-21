@@ -61,21 +61,16 @@ def add_watermark(img_path, date_taken, save_path, font_size, font_color, positi
         print(f"处理图片 {os.path.basename(img_path)} 时出错: {e}")
 
 
-def main():
-    parser = argparse.ArgumentParser(description='批量为图片添加拍摄日期水印')
-    parser.add_argument('folder', help='图片文件夹路径')
-    parser.add_argument('--font-size', type=int, default=32, help='字体大小，默认32')
-    parser.add_argument('--font-color', type=str, default='#FFFFFF', help='字体颜色，默认白色')
-    parser.add_argument('--position', type=str, choices=['left-top', 'center', 'right-bottom'], default='right-bottom', help='水印位置')
-    args = parser.parse_args()
 
+def run_watermark(args):
     folder = os.path.abspath(args.folder)
+    suffixes = [s.strip().lower() for s in args.suffixes.split(',')]
     watermark_dir = os.path.join(folder, os.path.basename(folder) + '_watermark')
     os.makedirs(watermark_dir, exist_ok=True)
 
     for fname in os.listdir(folder):
         ext = os.path.splitext(fname)[1].lower()
-        if ext not in SUPPORTED_FORMATS:
+        if ext not in suffixes:
             continue
         img_path = os.path.join(folder, fname)
         try:
@@ -88,6 +83,17 @@ def main():
             add_watermark(img_path, date_taken, save_path, args.font_size, args.font_color, args.position)
         except Exception as e:
             print(f"处理图片 {fname} 时出错: {e}")
+
+def main():
+    parser = argparse.ArgumentParser(description='批量为图片添加拍摄日期水印')
+    parser.add_argument('folder', help='图片文件夹路径')
+    parser.add_argument('--font-size', type=int, default=32, help='字体大小，默认32')
+    parser.add_argument('--font-color', type=str, default='#FFFFFF', help='字体颜色，默认白色')
+    parser.add_argument('--position', type=str, choices=['left-top', 'center', 'right-bottom'], default='right-bottom', help='水印位置')
+    parser.add_argument('--suffixes', type=str, default='.jpg,.jpeg,.png', help='图片后缀，逗号分隔，默认支持jpg,jpeg,png')
+    args = parser.parse_args()
+
+    run_watermark(args)
 
 if __name__ == '__main__':
     main()

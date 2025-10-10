@@ -18,6 +18,7 @@ class PreviewWidget(QLabel):
         self.image = None
         self.hint_text = "将图片拖拽到此处或点击导入按钮加载图片"
         self.setStyleSheet("color: gray; font-size: 14px;")
+        self.setAcceptDrops(True)
 
     def set_image(self, pil_img):
         """显示PIL图片为缩略图"""
@@ -43,17 +44,37 @@ class PreviewWidget(QLabel):
     def paintEvent(self, event):
         """自定义绘制逻辑：无图时显示提示，有图时显示图像"""
         painter = QPainter(self)
+        painter.setRenderHint(QPainter.RenderHint.SmoothPixmapTransform)
         if self.image:
-            qimg = self.pil2qimage(self.image)
-            pixmap = QPixmap.fromImage(qimg)
-            scaled = pixmap.scaled(
-                self.width(), self.height(),
-                Qt.AspectRatioMode.KeepAspectRatio,
-                Qt.TransformationMode.SmoothTransformation
-            )
-            x = (self.width() - scaled.width()) // 2
-            y = (self.height() - scaled.height()) // 2
-            painter.drawPixmap(x, y, scaled)
+            try:
+                qimg = self.pil2qimage(self.image)
+                pixmap = QPixmap.fromImage(qimg)
+                scaled = pixmap.scaled(
+                    self.width(), self.height(),
+                    Qt.AspectRatioMode.KeepAspectRatio,
+                    Qt.TransformationMode.SmoothTransformation
+                )
+                x = (self.width() - scaled.width()) // 2
+                y = (self.height() - scaled.height()) // 2
+                painter.drawPixmap(x, y, scaled)
+            except Exception as e:
+                # 显示错误提示
+                painter.setPen(Qt.GlobalColor.red)
+                painter.drawText(self.rect(), Qt.AlignmentFlag.AlignCenter, f"无法显示图片: {str(e)}")
         else:
             painter.setPen(Qt.GlobalColor.gray)
             painter.drawText(self.rect(), Qt.AlignmentFlag.AlignCenter, self.hint_text)
+
+    # ------------------- 拖拽支持 -------------------
+    def dragEnterEvent(self, event):
+        if event.mimeData().hasUrls():
+            event.acceptProposedAction()
+        else:
+            event.ignore()
+
+    def dropEvent(self, event):
+        urls = event.mimeData().urls()
+        paths = [u.toLocalFile() for u in urls if u.toLocalFile().lower().endswith(('.png', '.jpg', '.jpeg', '.bmp', '.tiff'))]
+        if paths:
+            # 用户可自行绑定回调处理导入逻辑
+            self.parent().add_images(paths)

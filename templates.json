@@ -1,0 +1,9 @@
+{
+  "test1": {
+    "name": "test1",
+    "font_size": 39,
+    "opacity": 1.0,
+    "position": "center",
+    "color": "#000000"
+  }
+}

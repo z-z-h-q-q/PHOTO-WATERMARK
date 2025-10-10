@@ -8,8 +8,9 @@ from PyQt6.QtGui import QPixmap, QDragEnterEvent, QDropEvent
 from PIL import Image, ImageDraw, ImageFont
 
 class ThumbnailLabel(QLabel):
-    def __init__(self, pixmap=None):
+    def __init__(self, main_window, pixmap=None):
         super().__init__()
+        self.main_window = main_window
         self.setAcceptDrops(True)
         if pixmap:
             self.setPixmap(pixmap)
@@ -27,7 +28,7 @@ class ThumbnailLabel(QLabel):
         files = [u.toLocalFile() for u in event.mimeData().urls()]
         for f in files:
             if f.lower().endswith(('.png', '.jpg', '.jpeg')):
-                self.parent().parent().parent().add_image(f)
+                self.main_window.add_image(f)
 
 class WatermarkApp(QMainWindow):
     def __init__(self):
@@ -54,7 +55,7 @@ class WatermarkApp(QMainWindow):
         layout.addWidget(self.scroll_area)
 
         # 拖放区域
-        self.drop_label = ThumbnailLabel()
+        self.drop_label = ThumbnailLabel(self)
         self.drop_label.setText("拖放图片到这里")
         layout.addWidget(self.drop_label)
 

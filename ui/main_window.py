@@ -100,6 +100,10 @@ class MainWindow(QMainWindow):
         naming_layout.addWidget(QLabel("后缀:"))
         self.suffix_input = QLineEdit("_watermarked")
         naming_layout.addWidget(self.suffix_input)
+        naming_layout.addWidget(QLabel("输出格式:"))
+        self.format_combo = QComboBox()
+        self.format_combo.addItems(["PNG", "JPEG"])
+        naming_layout.addWidget(self.format_combo)
         text_layout.addLayout(naming_layout)
 
         # 导入/导出按钮
@@ -302,9 +306,10 @@ class MainWindow(QMainWindow):
         )
 
         if result:
-            save_path, _ = QFileDialog.getSaveFileName(self, "保存图片", "", "PNG Image (*.png);;JPEG Image (*.jpg *.jpeg)")
+            save_path, _ = QFileDialog.getSaveFileName(
+                self, "保存图片", "", "PNG Image (*.png);;JPEG Image (*.jpg *.jpeg)")
             if save_path:
-                if result.mode in ("RGBA") and save_path.lower().endswith((".jpg", ".jpeg")):
+                if result.mode == "RGBA" and save_path.lower().endswith((".jpg", ".jpeg")):
                     result = result.convert("RGB")
                 if self.exporter.save_image(result, save_path):
                     self.status_label.setText(f"已导出：{save_path}")
@@ -331,6 +336,7 @@ class MainWindow(QMainWindow):
         prefix = self.prefix_input.text()
         suffix = self.suffix_input.text()
         text = self.text_input.text()
+        output_format = self.format_combo.currentText()  # PNG 或 JPEG
 
         self.progress_bar.setMaximum(len(self.image_paths))
         self.progress_bar.setValue(0)
@@ -341,9 +347,10 @@ class MainWindow(QMainWindow):
                 continue
 
             watermarked = self.watermark_engine.add_text_watermark(img, text)
-            name, ext = os.path.splitext(os.path.basename(path))
-            ext = ext.lower()
-            if ext in ['.jpg', '.jpeg'] and watermarked.mode == "RGBA":
+
+            name = os.path.splitext(os.path.basename(path))[0]
+            ext = ".png" if output_format == "PNG" else ".jpg"
+            if ext == ".jpg" and watermarked.mode == "RGBA":
                 watermarked = watermarked.convert("RGB")
             new_name = f"{prefix}{name}{suffix}{ext}"
             save_path = os.path.join(folder, new_name)

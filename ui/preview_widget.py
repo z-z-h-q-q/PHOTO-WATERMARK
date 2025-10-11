@@ -7,7 +7,6 @@ from PyQt6.QtGui import QPixmap, QImage, QPainter
 from PyQt6.QtCore import Qt
 from PIL import Image
 
-
 class PreviewWidget(QLabel):
     """增强版预览控件：支持parent参数 + 无图片提示 + PIL兼容"""
 
@@ -76,5 +75,7 @@ class PreviewWidget(QLabel):
         urls = event.mimeData().urls()
         paths = [u.toLocalFile() for u in urls if u.toLocalFile().lower().endswith(('.png', '.jpg', '.jpeg', '.bmp', '.tiff'))]
         if paths:
-            # 用户可自行绑定回调处理导入逻辑
-            self.parent().add_images(paths)
+            # 查找顶层 MainWindow，确保调用 add_images
+            top_window = self.window()
+            if hasattr(top_window, "add_images"):
+                top_window.add_images(paths)

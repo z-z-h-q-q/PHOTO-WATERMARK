@@ -1,8 +1,9 @@
 # ui/preview_widget.py
 from PyQt6.QtWidgets import QLabel, QSizePolicy
-from PyQt6.QtGui import QPixmap, QImage, QPainter, QColor, QFont
+from PyQt6.QtGui import QPixmap, QImage, QPainter, QColor, QFont, QFontMetrics
 from PyQt6.QtCore import Qt, pyqtSignal, QPoint
 from PIL import Image, ImageDraw, ImageFont
+
 
 class PreviewWidget(QLabel):
     watermark_moved = pyqtSignal(tuple)  # 拖拽结束发射比例坐标 (0~1, 0~1)
@@ -13,8 +14,9 @@ class PreviewWidget(QLabel):
         self.setMinimumSize(300, 200)
         self.setStyleSheet("color: gray; font-size: 14px;")
         self.setAcceptDrops(True)
+        self.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Expanding)
 
-        # 图片和水印
+        # 图片和水印属性
         self.image = None
         self.hint_text = "将图片拖拽到此处或点击导入按钮加载图片"
 
@@ -30,12 +32,14 @@ class PreviewWidget(QLabel):
         self.dragging = False
         self.drag_offset = (0, 0)
         self.min_margin = 10  # 边距像素
-        self.bottom_offset = 0
 
-        # 修正左侧文件列表变小的问题
-        self.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Expanding)
+    # ------------------- 设置图片 -------------------
+    def set_image(self, pil_img):
+        self.image = pil_img
+        self.watermark_pos = None
+        self.update_preview()
 
-    # ------------------- 更新水印和预览 -------------------
+    # ------------------- 更新预览 -------------------
     def update_preview(self):
         if self.current_settings:
             self.watermark_text = self.current_settings.get("text", "")
@@ -48,61 +52,60 @@ class PreviewWidget(QLabel):
         else:
             self.watermark_text = ""
 
-        # 默认居中位置（首次或未设置坐标时）
+        # 默认居中位置
         if self.image and self.watermark_text and self.watermark_pos is None:
             self.set_watermark_position_preset("center")
 
         self.update()
 
-    # ------------------- 拖拽导入 -------------------
-    def dragEnterEvent(self, event):
-        if event.mimeData().hasUrls():
-            event.acceptProposedAction()
-        else:
-            event.ignore()
-
-    def dropEvent(self, event):
-        urls = event.mimeData().urls()
-        paths = [u.toLocalFile() for u in urls if u.toLocalFile().lower().endswith(
-            ('.png', '.jpg', '.jpeg', '.bmp', '.tiff'))]
-        if paths:
-            top_window = self.window()
-            if hasattr(top_window, "add_images"):
-                top_window.add_images(paths)
-
-    # ------------------- 设置图片 -------------------
-    def set_image(self, pil_img):
-        self.image = pil_img
-        self.watermark_pos = None
-        self.update_preview()
-
     # ------------------- 拖拽水印 -------------------
     def mousePressEvent(self, event):
         if self.is_over_watermark(event.pos()):
             self.dragging = True
-            wm_x_px, wm_y_px = self.watermark_pos_to_pixels()
+            # 计算鼠标点击位置与水印左上角的偏移量（在预览控件坐标系中）
+            wm_x_px, wm_y_px = self.get_watermark_pixel_pos()
             scaled_w, scaled_h, x_offset, y_offset = self._get_scaled_geometry()
             ratio_w = scaled_w / self.image.width
             ratio_h = scaled_h / self.image.height
-            self.drag_offset = (event.x() - (x_offset + wm_x_px * ratio_w),
-                                event.y() - (y_offset + wm_y_px * ratio_h))
+            
+            preview_wm_x = x_offset + wm_x_px * ratio_w
+            preview_wm_y = y_offset + wm_y_px * ratio_h
+            
+            self.drag_offset = (
+                event.x() - preview_wm_x,
+                event.y() - preview_wm_y
+            )
 
     def mouseMoveEvent(self, event):
-        if self.dragging and self.image:
+        if self.dragging and self.image and self.watermark_text:
             scaled_w, scaled_h, x_offset, y_offset = self._get_scaled_geometry()
-            ratio_w = self.image.width / scaled_w
-            ratio_h = self.image.height / scaled_h
-
-            new_x = (event.x() - x_offset - self.drag_offset[0]) * ratio_w
-            new_y = (event.y() - y_offset - self.drag_offset[1]) * ratio_h
-
+            ratio_w = scaled_w / self.image.width
+            ratio_h = scaled_h / self.image.height
+            
+            # 计算新的水印位置（在预览控件坐标系中）
+            preview_new_x = event.x() - self.drag_offset[0]
+            preview_new_y = event.y() - self.drag_offset[1]
+            
+            # 转换为原图像素坐标
+            new_x = (preview_new_x - x_offset) / ratio_w
+            new_y = (preview_new_y - y_offset) / ratio_h
+            
             wm_w, wm_h = self.get_watermark_size()
-            # 边界限制
-            new_x = max(self.min_margin, min(new_x, self.image.width - wm_w - self.min_margin))
-            new_y = max(self.min_margin, min(new_y, self.image.height - wm_h - self.min_margin))
-
-            # 存为比例坐标
-            self.watermark_pos = (new_x / self.image.width, new_y / self.image.height)
+            
+            # 边界限制 - 确保水印完全在图片内
+            new_x = max(0, min(new_x, self.image.width - wm_w))
+            new_y = max(0, min(new_y, self.image.height - wm_h))
+            
+            # 转换为比例坐标
+            if self.image.width - wm_w > 0 and self.image.height - wm_h > 0:
+                self.watermark_pos = (
+                    new_x / (self.image.width - wm_w),
+                    new_y / (self.image.height - wm_h)
+                )
+            else:
+                # 如果水印比图片大，放在左上角
+                self.watermark_pos = (0, 0)
+                
             self.update()
 
     def mouseReleaseEvent(self, event):
@@ -114,97 +117,116 @@ class PreviewWidget(QLabel):
     def is_over_watermark(self, pos: QPoint):
         if not self.image or not self.watermark_text or not self.watermark_pos:
             return False
-        wm_x_px, wm_y_px = self.watermark_pos_to_pixels()
+            
+        wm_x_px, wm_y_px = self.get_watermark_pixel_pos()
         scaled_w, scaled_h, x_offset, y_offset = self._get_scaled_geometry()
         ratio_w = scaled_w / self.image.width
         ratio_h = scaled_h / self.image.height
+        
         wm_w, wm_h = self.get_watermark_size()
-        wm_w *= ratio_w
-        wm_h *= ratio_h
+        preview_wm_w = wm_w * ratio_w
+        preview_wm_h = wm_h * ratio_h
+        preview_wm_x = x_offset + wm_x_px * ratio_w
+        preview_wm_y = y_offset + wm_y_px * ratio_h
+        
         x, y = pos.x(), pos.y()
-        return wm_x_px * ratio_w + x_offset <= x <= wm_x_px * ratio_w + x_offset + wm_w and \
-               wm_y_px * ratio_h + y_offset <= y <= wm_y_px * ratio_h + y_offset + wm_h
+        return (preview_wm_x <= x <= preview_wm_x + preview_wm_w and 
+                preview_wm_y <= y <= preview_wm_y + preview_wm_h)
 
     # ------------------- 水印尺寸 -------------------
     def get_watermark_size(self):
+        """使用Qt计算水印文本的实际尺寸，确保与绘制时一致"""
         if not self.watermark_text or not self.image:
             return 0, 0
-        try:
-            font = ImageFont.truetype(self.font_family, self.font_size)
-        except:
-            font = ImageFont.load_default()
-        dummy = Image.new("RGB", (10, 10))
-        draw = ImageDraw.Draw(dummy)
-        try:
-            bbox = draw.textbbox((0, 0), self.watermark_text, font=font)
-            w, h = bbox[2] - bbox[0], bbox[3] - bbox[1]
-        except AttributeError:
-            w, h = draw.textsize(self.watermark_text, font=font)
-        return w, h
+        
+        # 使用Qt字体计算文本尺寸，确保与绘制时一致
+        font = QFont(self.font_family, self.font_size)
+        font.setBold(self.bold)
+        font.setItalic(self.italic)
+        
+        font_metrics = QFontMetrics(font)
+        text_rect = font_metrics.boundingRect(self.watermark_text)
+        
+        return text_rect.width(), text_rect.height()
 
     # ------------------- 九宫格预设 -------------------
     def set_watermark_position_preset(self, position_name: str):
         if not self.image or not self.watermark_text:
             return
-        wm_w, wm_h = self.get_watermark_size()
-        img_w, img_h = self.image.width, self.image.height
-        margin = self.min_margin
 
-        positions_px = {
-            "top-left": (margin, margin),
-            "top-right": (img_w - wm_w - margin, margin),
-            "bottom-left": (margin, img_h - wm_h - margin),
-            "bottom-right": (img_w - wm_w - margin, img_h - wm_h - margin),
-            "center": ((img_w - wm_w) / 2, (img_h - wm_h) / 2),
+        positions_ratio = {
+            "top-left": (0, 0),
+            "top-right": (1, 0),
+            "bottom-left": (0, 1),
+            "bottom-right": (1, 1),
+            "center": (0.5, 0.5),
         }
-
-        x_px, y_px = positions_px.get(position_name, positions_px["center"])
-        self.watermark_pos = (x_px / img_w, y_px / img_h)
+        self.watermark_pos = positions_ratio.get(position_name, (0.5, 0.5))
         self.update()
 
-    def watermark_pos_to_pixels(self):
-        """将比例坐标转换为像素坐标"""
-        if not self.image or not self.watermark_pos:
+    # ------------------- 坐标转换 -------------------
+    def get_watermark_pixel_pos(self):
+        """比例坐标 -> 原图像素坐标"""
+        if not self.image or not self.watermark_text or not self.watermark_pos:
             return 0, 0
-        x_px = self.watermark_pos[0] * self.image.width
-        y_px = self.watermark_pos[1] * self.image.height
+            
         wm_w, wm_h = self.get_watermark_size()
+        img_w, img_h = self.image.width, self.image.height
+
+        # 计算可移动范围
+        movable_width = max(0, img_w - wm_w)
+        movable_height = max(0, img_h - wm_h)
+        
+        # 将比例坐标转换为像素坐标
+        px = self.watermark_pos[0] * movable_width
+        py = self.watermark_pos[1] * movable_height
+
         # 防止越界
-        x_px = min(x_px, self.image.width - wm_w - 1)
-        y_px = min(y_px, self.image.height - wm_h - 1)
-        return x_px, y_px
+        px = max(0, min(px, movable_width))
+        py = max(0, min(py, movable_height))
+        return px, py
 
     # ------------------- 绘制 -------------------
     def paintEvent(self, event):
         painter = QPainter(self)
         painter.setRenderHint(QPainter.RenderHint.SmoothPixmapTransform)
-        if self.image:
-            qimg = self._pil2qimage(self.image)
-            pixmap = QPixmap.fromImage(qimg)
-            scaled_w, scaled_h, x_offset, y_offset = self._get_scaled_geometry()
-            scaled_pixmap = pixmap.scaled(
-                int(scaled_w), int(scaled_h),
-                Qt.AspectRatioMode.KeepAspectRatio,
-                Qt.TransformationMode.SmoothTransformation
-            )
-            painter.drawPixmap(int(x_offset), int(y_offset), scaled_pixmap)
 
-            if self.watermark_text and self.watermark_pos:
-                wm_x_px, wm_y_px = self.watermark_pos_to_pixels()
-                ratio_w = scaled_w / self.image.width
-                ratio_h = scaled_h / self.image.height
-                draw_x = x_offset + wm_x_px * ratio_w
-                draw_y = y_offset + wm_y_px * ratio_h
-
-                font = QFont(self.font_family, max(int(self.font_size * ratio_h), 1))
-                font.setBold(self.bold)
-                font.setItalic(self.italic)
-                painter.setFont(font)
-                painter.setPen(self.color)
-                painter.drawText(int(draw_x), int(draw_y + font.pointSize()), self.watermark_text)
-        else:
+        if not self.image:
             painter.setPen(Qt.GlobalColor.gray)
             painter.drawText(self.rect(), Qt.AlignmentFlag.AlignCenter, self.hint_text)
+            return
+
+        qimg = self._pil2qimage(self.image)
+        pixmap = QPixmap.fromImage(qimg)
+        scaled_w, scaled_h, x_offset, y_offset = self._get_scaled_geometry()
+        scaled_pixmap = pixmap.scaled(
+            int(scaled_w), int(scaled_h),
+            Qt.AspectRatioMode.KeepAspectRatio,
+            Qt.TransformationMode.SmoothTransformation
+        )
+        painter.drawPixmap(int(x_offset), int(y_offset), scaled_pixmap)
+
+        if self.watermark_text and self.watermark_pos:
+            wm_x, wm_y = self.get_watermark_pixel_pos()
+            ratio_w = scaled_w / self.image.width
+            ratio_h = scaled_h / self.image.height
+
+            # 计算在预览控件上的绘制位置
+            draw_x = x_offset + wm_x * ratio_w
+            draw_y = y_offset + wm_y * ratio_h
+
+            # 创建缩放后的字体
+            font = QFont(self.font_family, max(int(self.font_size * ratio_h), 1))
+            font.setBold(self.bold)
+            font.setItalic(self.italic)
+            painter.setFont(font)
+            painter.setPen(self.color)
+
+            # 使用Qt绘制文本，确保位置准确
+            painter.drawText(int(draw_x), int(draw_y), int(self.image.width * ratio_w), 
+                           int(self.image.height * ratio_h), 
+                           Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop, 
+                           self.watermark_text)
 
     # ------------------- PIL -> QImage -------------------
     def _pil2qimage(self, im):
@@ -221,7 +243,7 @@ class PreviewWidget(QLabel):
             data = im.tobytes("raw", "RGBA")
             return QImage(data, im.width, im.height, QImage.Format.Format_RGBA8888)
 
-    # ------------------- 缩放计算 -------------------
+    # ------------------- QLabel 缩放计算 -------------------
     def _get_scaled_geometry(self):
         if not self.image:
             return 0, 0, 0, 0
@@ -233,3 +255,19 @@ class PreviewWidget(QLabel):
         x_offset = (widget_w - scaled_w) / 2
         y_offset = (widget_h - scaled_h) / 2
         return scaled_w, scaled_h, x_offset, y_offset
+
+    # ------------------- 拖拽导入 -------------------
+    def dragEnterEvent(self, event):
+        if event.mimeData().hasUrls():
+            event.acceptProposedAction()
+        else:
+            event.ignore()
+
+    def dropEvent(self, event):
+        urls = event.mimeData().urls()
+        paths = [u.toLocalFile() for u in urls if u.toLocalFile().lower().endswith(
+            ('.png', '.jpg', '.jpeg', '.bmp', '.tiff'))]
+        if paths:
+            top_window = self.window()
+            if hasattr(top_window, "add_images"):
+                top_window.add_images(paths)

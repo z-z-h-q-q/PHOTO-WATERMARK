@@ -160,9 +160,13 @@ class MainWindow(QMainWindow):
 
     # ---------------- 水印位置处理 ----------------
     def on_position_changed(self, coord):
-        """九宫格按钮点击或拖拽更新坐标"""
+        """九宫格按钮点击或拖拽更新坐标（比例坐标0~1）"""
+        if not self.current_image_path:
+            return
         self.watermark_position = coord
+        self.preview.watermark_pos = coord  # 统一存储比例坐标
         self.update_text_preview(self.text_settings.get_settings())
+
 
     def on_watermark_moved(self, pos):
         """拖拽水印时触发"""
@@ -185,6 +189,7 @@ class MainWindow(QMainWindow):
             self.preview.set_image(img)
             return
 
+        # 颜色和字体设置
         settings["color"] = self.qcolor_to_rgba(settings.get("color"), settings.get("opacity", 1.0))
         if "font_family" not in settings or not settings["font_family"]:
             settings["font_family"] = "SimHei"
@@ -192,45 +197,10 @@ class MainWindow(QMainWindow):
         self.preview.current_settings = settings
         self.preview.set_image(img)
 
-        if isinstance(self.watermark_position, tuple):
-            # 如果 watermark_position 存的是比例坐标，转换成像素坐标
-            img_w, img_h = img.width, img.height
-            wm_px = (self.watermark_position[0] * img_w, self.watermark_position[1] * img_h)
-            # 限制边距
-            wm_w, wm_h = self.preview.get_watermark_size()
-            margin = 5
-            wm_x = max(margin, min(wm_px[0], img_w - wm_w - margin))
-            wm_y = max(margin, min(wm_px[1], img_h - wm_h - margin))
-
-            self.preview.watermark_pos = (wm_x, wm_y)
-        else:
-            self.preview.watermark_pos = None
-
+        # self.watermark_position 已经是比例坐标，PreviewWidget 内统一转换
+        self.preview.watermark_pos = self.watermark_position
         self.preview.update_preview()
 
-        if not self.current_image_path:
-            return
-        img = self.image_loader.load_image(self.current_image_path)
-        if not img:
-            return
-
-        text = settings.get("text", "")
-        if not text:
-            self.preview.set_image(img)
-            return
-
-        settings["color"] = self.qcolor_to_rgba(settings.get("color"), settings.get("opacity", 1.0))
-        if "font_family" not in settings or not settings["font_family"]:
-            settings["font_family"] = "SimHei"
-
-        self.preview.current_settings = settings
-        self.preview.set_image(img)
-
-        if isinstance(self.watermark_position, tuple):
-            self.preview.watermark_pos = self.watermark_position
-        else:
-            self.preview.watermark_pos = None
-        self.preview.update_preview()
 
     # ---------------- 批量导出 ----------------
     def export_all_images(self):

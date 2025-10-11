@@ -60,42 +60,44 @@ class PreviewWidget(QLabel):
 
     # ------------------- 拖拽水印 -------------------
     def mousePressEvent(self, event):
-        if self.is_over_watermark(event.pos()):
+        pos = event.position()  # PyQt6 返回 QPointF
+        if self.is_over_watermark(pos):
             self.dragging = True
             # 计算鼠标点击位置与水印左上角的偏移量（在预览控件坐标系中）
             wm_x_px, wm_y_px = self.get_watermark_pixel_pos()
             scaled_w, scaled_h, x_offset, y_offset = self._get_scaled_geometry()
             ratio_w = scaled_w / self.image.width
             ratio_h = scaled_h / self.image.height
-            
+
             preview_wm_x = x_offset + wm_x_px * ratio_w
             preview_wm_y = y_offset + wm_y_px * ratio_h
-            
+
             self.drag_offset = (
-                event.x() - preview_wm_x,
-                event.y() - preview_wm_y
+                pos.x() - preview_wm_x,
+                pos.y() - preview_wm_y
             )
 
     def mouseMoveEvent(self, event):
         if self.dragging and self.image and self.watermark_text:
+            pos = event.position()
             scaled_w, scaled_h, x_offset, y_offset = self._get_scaled_geometry()
             ratio_w = scaled_w / self.image.width
             ratio_h = scaled_h / self.image.height
-            
+
             # 计算新的水印位置（在预览控件坐标系中）
-            preview_new_x = event.x() - self.drag_offset[0]
-            preview_new_y = event.y() - self.drag_offset[1]
-            
+            preview_new_x = pos.x() - self.drag_offset[0]
+            preview_new_y = pos.y() - self.drag_offset[1]
+
             # 转换为原图像素坐标
             new_x = (preview_new_x - x_offset) / ratio_w
             new_y = (preview_new_y - y_offset) / ratio_h
-            
+
             wm_w, wm_h = self.get_watermark_size()
-            
+
             # 边界限制 - 确保水印完全在图片内
             new_x = max(0, min(new_x, self.image.width - wm_w))
             new_y = max(0, min(new_y, self.image.height - wm_h))
-            
+
             # 转换为比例坐标
             if self.image.width - wm_w > 0 and self.image.height - wm_h > 0:
                 self.watermark_pos = (
@@ -105,7 +107,7 @@ class PreviewWidget(QLabel):
             else:
                 # 如果水印比图片大，放在左上角
                 self.watermark_pos = (0, 0)
-                
+
             self.update()
 
     def mouseReleaseEvent(self, event):
@@ -114,22 +116,28 @@ class PreviewWidget(QLabel):
             if self.watermark_pos:
                 self.watermark_moved.emit(self.watermark_pos)
 
-    def is_over_watermark(self, pos: QPoint):
+    def is_over_watermark(self, pos):
+        """检查鼠标是否在水印上"""
+        # pos 可以是 QPointF 或 QPoint
+        if isinstance(pos, QPoint):
+            x, y = pos.x(), pos.y()
+        else:
+            x, y = pos.x(), pos.y()
+
         if not self.image or not self.watermark_text or not self.watermark_pos:
             return False
-            
+
         wm_x_px, wm_y_px = self.get_watermark_pixel_pos()
         scaled_w, scaled_h, x_offset, y_offset = self._get_scaled_geometry()
         ratio_w = scaled_w / self.image.width
         ratio_h = scaled_h / self.image.height
-        
+
         wm_w, wm_h = self.get_watermark_size()
         preview_wm_w = wm_w * ratio_w
         preview_wm_h = wm_h * ratio_h
         preview_wm_x = x_offset + wm_x_px * ratio_w
         preview_wm_y = y_offset + wm_y_px * ratio_h
-        
-        x, y = pos.x(), pos.y()
+
         return (preview_wm_x <= x <= preview_wm_x + preview_wm_w and 
                 preview_wm_y <= y <= preview_wm_y + preview_wm_h)
 

@@ -10,8 +10,10 @@ class TextWatermarkSettings(QWidget):
     """
     文字水印设置面板：
     - 实时发射 settings_changed(dict) 信号，供主窗口刷新预览。
+    - 提供水印位置选择（四角+中间）。
     """
-    settings_changed = pyqtSignal(dict)  # 实时变化
+    settings_changed = pyqtSignal(dict)  # 水印属性变化
+    position_changed = pyqtSignal(str)   # 水印位置按钮点击
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -77,8 +79,20 @@ class TextWatermarkSettings(QWidget):
         self.text_input = QLineEdit()
         self.text_input.setPlaceholderText("请输入水印文字")
         line2.addWidget(self.text_input)
-
         main_layout.addLayout(line2)
+
+        # ========== 第三行：四角+中心布局按钮 ==========
+        positions = ['top-left', 'top-right', 'bottom-left', 'bottom-right', 'center']
+        self.pos_buttons = {}
+        pos_layout = QHBoxLayout()
+        pos_layout.setSpacing(10)
+        for pos in positions:
+            btn = QPushButton(pos.replace('-', '\n').title())
+            btn.setFixedSize(60, 40)
+            btn.clicked.connect(lambda checked, p=pos: self.on_pos_button_clicked(p))
+            pos_layout.addWidget(btn)
+            self.pos_buttons[pos] = btn
+        main_layout.addLayout(pos_layout)
 
         # ====== 信号绑定 ======
         self.font_combo.currentTextChanged.connect(self.emit_settings)
@@ -107,6 +121,10 @@ class TextWatermarkSettings(QWidget):
     def on_opacity_changed(self, value):
         self.opacity_label.setText(f"{value}%")
         self.emit_settings()
+
+    def on_pos_button_clicked(self, pos_name):
+        """水印位置按钮点击事件"""
+        self.position_changed.emit(pos_name)
 
     # ------------------ 核心方法 ------------------
     def get_settings(self):

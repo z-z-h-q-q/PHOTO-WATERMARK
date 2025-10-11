@@ -31,6 +31,7 @@ class MainWindow(QMainWindow):
         # ---------------- 当前状态 ----------------
         self.image_paths = []
         self.current_image_path = None
+        self.watermark_position = None  # None=默认居中, str=九宫格, tuple=(x,y)
 
         # ---------------- 中央控件布局 ----------------
         central = QWidget()
@@ -50,6 +51,7 @@ class MainWindow(QMainWindow):
 
         # 右侧预览
         self.preview = PreviewWidget()
+        self.preview.watermark_moved.connect(self.on_watermark_moved)
         splitter.addWidget(self.preview)
         splitter.setStretchFactor(1, 1)
 
@@ -60,6 +62,7 @@ class MainWindow(QMainWindow):
         # 文字水印设置面板
         self.text_settings = TextWatermarkSettings()
         self.text_settings.settings_changed.connect(lambda s: self.update_text_preview(s))
+        self.text_settings.position_changed.connect(self.on_position_button_clicked)
         bottom_layout.addWidget(self.text_settings)
 
         # 模板区
@@ -116,7 +119,6 @@ class MainWindow(QMainWindow):
 
     # ---------------- 工具函数 ----------------
     def qcolor_to_rgba(self, color, opacity=1.0):
-        """统一转换为 RGBA"""
         if isinstance(color, QColor):
             return (color.red(), color.green(), color.blue(), int(255 * opacity))
         elif isinstance(color, tuple):
@@ -155,8 +157,7 @@ class MainWindow(QMainWindow):
             pixmap = QPixmap(path)
             if not pixmap.isNull():
                 pixmap = pixmap.scaled(
-                    100,
-                    100,
+                    100, 100,
                     Qt.AspectRatioMode.KeepAspectRatio,
                     Qt.TransformationMode.SmoothTransformation,
                 )
@@ -174,10 +175,20 @@ class MainWindow(QMainWindow):
         path = item.data(Qt.ItemDataRole.UserRole)
         if path:
             self.current_image_path = path
-            # 自动刷新水印预览
             self.update_text_preview(self.text_settings.get_settings())
             self.status_label.setText(f"预览：{os.path.basename(path)}")
 
+    # ---------------- 水印位置处理 ----------------
+    def on_position_button_clicked(self, pos_name):
+        """九宫格按钮点击"""
+        self.watermark_position = pos_name
+        self.update_text_preview(self.text_settings.get_settings())
+
+    def on_watermark_moved(self, pos):
+        """拖拽水印结束时获取坐标"""
+        self.watermark_position = pos
+        self.status_label.setText(f"水印自定义坐标：{pos}")
+        self.update_text_preview(self.text_settings.get_settings())
 
     # ---------------- 实时水印预览 ----------------
     def update_text_preview(self, settings):
@@ -187,7 +198,6 @@ class MainWindow(QMainWindow):
         if not img:
             return
 
-        # 从 UI 获取文字
         text = settings.get("text", "")
         if not text:
             self.preview.set_image(img)
@@ -195,15 +205,23 @@ class MainWindow(QMainWindow):
 
         # 转换颜色为 RGBA
         settings["color"] = self.qcolor_to_rgba(settings.get("color"), settings.get("opacity", 1.0))
+        if "font_family" not in settings or not settings["font_family"]:
+            settings["font_family"] = "SimHei"
 
-        watermarked = self.watermark_engine.add_text_watermark(img, text, settings=settings)
-        if watermarked:
-            self.preview.set_image(watermarked)
+        self.preview.current_settings = settings
+        self.preview.set_image(img)
 
-    # ---------------- 生成预览按钮 ----------------
-    def generate_preview(self):
-        """点击生成预览按钮时刷新当前图片水印效果"""
-        self.update_text_preview(self.text_settings.get_settings())
+        # ---------------- 水印位置处理 ----------------
+        if isinstance(self.watermark_position, str):
+            # 九宫格布局，右侧/底部偏移调整为 20px
+            self.preview.set_watermark_position_preset(self.watermark_position)
+
+        elif isinstance(self.watermark_position, tuple):
+            self.preview.watermark_pos = self.watermark_position
+            self.preview.update_preview()
+        else:
+            self.preview.watermark_pos = None
+            self.preview.update_preview()
 
     # ---------------- 模板管理 ----------------
     def update_template_list(self):
@@ -258,7 +276,6 @@ class MainWindow(QMainWindow):
         if not folder:
             return
 
-        # 防止覆盖源目录
         orig_folders = set(os.path.dirname(p) for p in self.image_paths)
         if folder in orig_folders:
             QMessageBox.warning(self, "错误", "输出文件夹不能与原图片所在文件夹相同")
@@ -268,6 +285,9 @@ class MainWindow(QMainWindow):
         suffix = self.suffix_input.text()
         settings = self.text_settings.get_settings()
         settings["color"] = self.qcolor_to_rgba(settings.get("color"), settings.get("opacity", 1.0))
+        if self.watermark_position:
+            settings["_pos_override"] = self.watermark_position
+
         text = settings.get("text", "")
         if not text:
             QMessageBox.warning(self, "错误", "请先设置水印文字")

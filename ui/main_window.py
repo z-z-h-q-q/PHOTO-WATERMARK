@@ -1,18 +1,16 @@
+# main_window.py
 from PyQt6.QtWidgets import (
     QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
     QPushButton, QLineEdit, QFileDialog, QLabel,
-    QMessageBox, QComboBox, QProgressBar, QSplitter,
-    QListWidget, QListWidgetItem
+    QMessageBox, QComboBox, QProgressBar, QListWidget, QListWidgetItem
 )
 from PyQt6.QtGui import QPixmap, QIcon, QColor
 from PyQt6.QtCore import Qt, QSize
 from ui.preview_widget import PreviewWidget
 from ui.text_watermark_settings import TextWatermarkSettings
-from ui.template_dialog import TemplateDialog
 from core.image_loader import ImageLoader
 from core.watermark_engine import WatermarkEngine
 from core.exporter import Exporter
-from core.template_manager import TemplateManager
 import os
 
 
@@ -25,13 +23,12 @@ class MainWindow(QMainWindow):
         # ---------------- 核心模块 ----------------
         self.image_loader = ImageLoader()
         self.watermark_engine = WatermarkEngine()
-        self.template_manager = TemplateManager()
         self.exporter = Exporter()
 
         # ---------------- 当前状态 ----------------
         self.image_paths = []
         self.current_image_path = None
-        self.watermark_position = None  # None=默认居中, str=九宫格, tuple=(x,y)
+        self.watermark_position = None  # tuple=(x,y)
 
         # ---------------- 中央控件布局 ----------------
         central = QWidget()
@@ -39,75 +36,58 @@ class MainWindow(QMainWindow):
         main_layout = QVBoxLayout(central)
 
         # 上部：左缩略图 + 右预览
-        splitter = QSplitter(Qt.Orientation.Horizontal)
-        splitter.setFixedHeight(400)
-        main_layout.addWidget(splitter)
+        splitter_layout = QHBoxLayout()
+        main_layout.addLayout(splitter_layout)
 
-        # 左侧缩略图列表
+        # 左侧缩略图列表（QListWidget，可点击）
         self.thumbnail_list = QListWidget()
         self.thumbnail_list.setIconSize(QSize(100, 100))
+        self.thumbnail_list.setMinimumWidth(150)
         self.thumbnail_list.itemClicked.connect(self.on_thumbnail_clicked)
-        splitter.addWidget(self.thumbnail_list)
+        splitter_layout.addWidget(self.thumbnail_list)
 
         # 右侧预览
         self.preview = PreviewWidget()
         self.preview.watermark_moved.connect(self.on_watermark_moved)
-        splitter.addWidget(self.preview)
-        splitter.setStretchFactor(1, 1)
+        splitter_layout.addWidget(self.preview)
+        splitter_layout.setStretch(1, 1)
 
-        # 下部：水印设置、模板、导出
+        # 下部：水印设置、导出
         bottom_layout = QVBoxLayout()
         main_layout.addLayout(bottom_layout)
 
-        # 文字水印设置面板
+        # 文字水印设置面板（包含九宫格位置按钮）
         self.text_settings = TextWatermarkSettings()
         self.text_settings.settings_changed.connect(lambda s: self.update_text_preview(s))
-        self.text_settings.position_changed.connect(self.on_position_button_clicked)
+        self.text_settings.position_changed.connect(self.on_position_changed)
         bottom_layout.addWidget(self.text_settings)
 
-        # 模板区
-        template_layout = QHBoxLayout()
-        template_layout.addWidget(QLabel("选择模板:"))
-        self.template_combo = QComboBox()
-        self.update_template_list()
-        template_layout.addWidget(self.template_combo)
-
-        btn_new_template = QPushButton("新建模板")
-        btn_new_template.clicked.connect(self.create_template)
-        btn_edit_template = QPushButton("编辑模板")
-        btn_edit_template.clicked.connect(self.edit_template)
-        btn_delete_template = QPushButton("删除模板")
-        btn_delete_template.clicked.connect(self.delete_template)
-
-        template_layout.addWidget(btn_new_template)
-        template_layout.addWidget(btn_edit_template)
-        template_layout.addWidget(btn_delete_template)
-        bottom_layout.addLayout(template_layout)
-
-        # 导出区
-        export_layout = QHBoxLayout()
-        export_layout.addWidget(QLabel("前缀:"))
+        # ---------------- 导出设置 ----------------
+        export_params_layout = QHBoxLayout()
+        export_params_layout.addWidget(QLabel("前缀:"))
         self.prefix_input = QLineEdit("wm_")
-        export_layout.addWidget(self.prefix_input)
-        export_layout.addWidget(QLabel("后缀:"))
+        export_params_layout.addWidget(self.prefix_input)
+        export_params_layout.addWidget(QLabel("后缀:"))
         self.suffix_input = QLineEdit("_watermarked")
-        export_layout.addWidget(self.suffix_input)
-        export_layout.addWidget(QLabel("输出格式:"))
+        export_params_layout.addWidget(self.suffix_input)
+        export_params_layout.addWidget(QLabel("输出格式:"))
         self.format_combo = QComboBox()
         self.format_combo.addItems(["PNG", "JPEG"])
-        export_layout.addWidget(self.format_combo)
+        export_params_layout.addWidget(self.format_combo)
+        bottom_layout.addLayout(export_params_layout)
 
+        # 第二行：导入/导出按钮
+        export_buttons_layout = QHBoxLayout()
         btn_import_files = QPushButton("导入图片")
         btn_import_files.clicked.connect(self.import_images)
         btn_import_folder = QPushButton("导入文件夹")
         btn_import_folder.clicked.connect(self.import_folder)
         self.btn_export = QPushButton("导出所有图片")
         self.btn_export.clicked.connect(self.export_all_images)
-
-        export_layout.addWidget(btn_import_files)
-        export_layout.addWidget(btn_import_folder)
-        export_layout.addWidget(self.btn_export)
-        bottom_layout.addLayout(export_layout)
+        export_buttons_layout.addWidget(btn_import_files)
+        export_buttons_layout.addWidget(btn_import_folder)
+        export_buttons_layout.addWidget(self.btn_export)
+        bottom_layout.addLayout(export_buttons_layout)
 
         # 进度条
         self.progress_bar = QProgressBar()
@@ -179,15 +159,17 @@ class MainWindow(QMainWindow):
             self.status_label.setText(f"预览：{os.path.basename(path)}")
 
     # ---------------- 水印位置处理 ----------------
-    def on_position_button_clicked(self, pos_name):
-        """九宫格按钮点击"""
-        self.watermark_position = pos_name
+    def on_position_changed(self, coord):
+        """九宫格按钮点击或拖拽更新坐标"""
+        self.watermark_position = coord
         self.update_text_preview(self.text_settings.get_settings())
 
     def on_watermark_moved(self, pos):
-        """拖拽水印结束时获取坐标"""
+        """拖拽水印时触发"""
         self.watermark_position = pos
         self.status_label.setText(f"水印自定义坐标：{pos}")
+        # 拖拽时取消九宫格高亮
+        self.text_settings.clear_grid_selection()
         self.update_text_preview(self.text_settings.get_settings())
 
     # ---------------- 实时水印预览 ----------------
@@ -203,7 +185,6 @@ class MainWindow(QMainWindow):
             self.preview.set_image(img)
             return
 
-        # 转换颜色为 RGBA
         settings["color"] = self.qcolor_to_rgba(settings.get("color"), settings.get("opacity", 1.0))
         if "font_family" not in settings or not settings["font_family"]:
             settings["font_family"] = "SimHei"
@@ -211,60 +192,45 @@ class MainWindow(QMainWindow):
         self.preview.current_settings = settings
         self.preview.set_image(img)
 
-        # ---------------- 水印位置处理 ----------------
-        if isinstance(self.watermark_position, str):
-            # 九宫格布局，右侧/底部偏移调整为 20px
-            self.preview.set_watermark_position_preset(self.watermark_position)
+        if isinstance(self.watermark_position, tuple):
+            # 如果 watermark_position 存的是比例坐标，转换成像素坐标
+            img_w, img_h = img.width, img.height
+            wm_px = (self.watermark_position[0] * img_w, self.watermark_position[1] * img_h)
+            # 限制边距
+            wm_w, wm_h = self.preview.get_watermark_size()
+            margin = 5
+            wm_x = max(margin, min(wm_px[0], img_w - wm_w - margin))
+            wm_y = max(margin, min(wm_px[1], img_h - wm_h - margin))
 
-        elif isinstance(self.watermark_position, tuple):
-            self.preview.watermark_pos = self.watermark_position
-            self.preview.update_preview()
+            self.preview.watermark_pos = (wm_x, wm_y)
         else:
             self.preview.watermark_pos = None
-            self.preview.update_preview()
 
-    # ---------------- 模板管理 ----------------
-    def update_template_list(self):
-        self.template_combo.clear()
-        self.template_combo.addItem("不使用模板")
-        templates = self.template_manager.list_templates()
-        self.template_combo.addItems(templates)
+        self.preview.update_preview()
 
-    def create_template(self):
-        dialog = TemplateDialog(self)
-        if dialog.exec():
-            data = dialog.get_template_data()
-            if self.template_manager.save_template(data["name"], data):
-                self.update_template_list()
-                self.status_label.setText(f"已创建模板：{data['name']}")
-            else:
-                QMessageBox.warning(self, "错误", "保存模板失败")
-
-    def edit_template(self):
-        name = self.template_combo.currentText()
-        if name == "不使用模板":
+        if not self.current_image_path:
             return
-        data = self.template_manager.get_template(name)
-        if data:
-            dialog = TemplateDialog(self, data)
-            if dialog.exec():
-                new_data = dialog.get_template_data()
-                if self.template_manager.save_template(name, new_data):
-                    self.update_template_list()
-                    self.status_label.setText(f"已更新模板：{name}")
-                else:
-                    QMessageBox.warning(self, "错误", "更新模板失败")
-
-    def delete_template(self):
-        name = self.template_combo.currentText()
-        if name == "不使用模板":
+        img = self.image_loader.load_image(self.current_image_path)
+        if not img:
             return
-        if QMessageBox.question(self, "确认", f"确定要删除模板 {name} 吗？") == QMessageBox.StandardButton.Yes:
-            if self.template_manager.delete_template(name):
-                self.update_template_list()
-                self.status_label.setText(f"已删除模板：{name}")
-            else:
-                QMessageBox.warning(self, "错误", "删除模板失败")
+
+        text = settings.get("text", "")
+        if not text:
+            self.preview.set_image(img)
+            return
+
+        settings["color"] = self.qcolor_to_rgba(settings.get("color"), settings.get("opacity", 1.0))
+        if "font_family" not in settings or not settings["font_family"]:
+            settings["font_family"] = "SimHei"
+
+        self.preview.current_settings = settings
+        self.preview.set_image(img)
+
+        if isinstance(self.watermark_position, tuple):
+            self.preview.watermark_pos = self.watermark_position
+        else:
+            self.preview.watermark_pos = None
+        self.preview.update_preview()
 
     # ---------------- 批量导出 ----------------
     def export_all_images(self):

@@ -1,17 +1,17 @@
-"""
-水印模板管理模块，负责存储和管理水印模板。
-依赖：json
-"""
+# template_manager.py
 import json
 import os
 
 class TemplateManager:
-    def __init__(self, template_file="templates.json"):
+    def __init__(self, template_file="templates.json", default_template="test1"):
         self.template_file = template_file
+        self.default_template = default_template
         self.templates = self._load_templates()
 
+        # 启动时加载默认模板
+        self.current_template = self.templates.get(self.default_template, {})
+
     def _load_templates(self):
-        """从文件加载模板"""
         if not os.path.exists(self.template_file):
             return {}
         try:
@@ -22,7 +22,6 @@ class TemplateManager:
             return {}
 
     def save_template(self, name, properties):
-        """保存水印模板"""
         self.templates[name] = properties
         try:
             with open(self.template_file, 'w', encoding='utf-8') as f:
@@ -33,15 +32,12 @@ class TemplateManager:
             return False
 
     def get_template(self, name):
-        """获取指定模板"""
         return self.templates.get(name)
 
     def list_templates(self):
-        """列出所有模板"""
         return list(self.templates.keys())
 
     def delete_template(self, name):
-        """删除模板"""
         if name in self.templates:
             del self.templates[name]
             try:

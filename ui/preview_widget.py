@@ -1,11 +1,11 @@
+# ui/preview_widget.py
 from PyQt6.QtWidgets import QLabel, QSizePolicy
 from PyQt6.QtGui import QPixmap, QImage, QPainter, QColor, QFont
 from PyQt6.QtCore import Qt, pyqtSignal, QPoint
 from PIL import Image, ImageDraw, ImageFont
 
-
 class PreviewWidget(QLabel):
-    watermark_moved = pyqtSignal(tuple)  # 拖拽结束发射 (x, y)
+    watermark_moved = pyqtSignal(tuple)  # 拖拽结束发射比例坐标 (0~1, 0~1)
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -26,19 +26,16 @@ class PreviewWidget(QLabel):
         self.italic = False
         self.color = QColor(255, 255, 255, 180)
 
-        self.watermark_pos = None  # 原图坐标
+        self.watermark_pos = None  # 比例坐标 (0~1, 0~1)
         self.dragging = False
         self.drag_offset = (0, 0)
-        self.min_margin = 10
+        self.min_margin = 10  # 边距像素
         self.bottom_offset = 0
-
-        # 可选调试框
-        self.show_watermark_box = False
 
         # 修正左侧文件列表变小的问题
         self.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Expanding)
 
-    # ------------------- 兼容 update_preview -------------------
+    # ------------------- 更新水印和预览 -------------------
     def update_preview(self):
         if self.current_settings:
             self.watermark_text = self.current_settings.get("text", "")
@@ -51,6 +48,7 @@ class PreviewWidget(QLabel):
         else:
             self.watermark_text = ""
 
+        # 默认居中位置（首次或未设置坐标时）
         if self.image and self.watermark_text and self.watermark_pos is None:
             self.set_watermark_position_preset("center")
 
@@ -78,16 +76,16 @@ class PreviewWidget(QLabel):
         self.watermark_pos = None
         self.update_preview()
 
-    # ------------------- 水印拖拽 -------------------
+    # ------------------- 拖拽水印 -------------------
     def mousePressEvent(self, event):
         if self.is_over_watermark(event.pos()):
             self.dragging = True
-            wx, wy = self.watermark_pos or (0, 0)
+            wm_x_px, wm_y_px = self.watermark_pos_to_pixels()
             scaled_w, scaled_h, x_offset, y_offset = self._get_scaled_geometry()
             ratio_w = scaled_w / self.image.width
             ratio_h = scaled_h / self.image.height
-            self.drag_offset = (event.x() - (x_offset + wx * ratio_w),
-                                event.y() - (y_offset + wy * ratio_h))
+            self.drag_offset = (event.x() - (x_offset + wm_x_px * ratio_w),
+                                event.y() - (y_offset + wm_y_px * ratio_h))
 
     def mouseMoveEvent(self, event):
         if self.dragging and self.image:
@@ -99,10 +97,12 @@ class PreviewWidget(QLabel):
             new_y = (event.y() - y_offset - self.drag_offset[1]) * ratio_h
 
             wm_w, wm_h = self.get_watermark_size()
+            # 边界限制
             new_x = max(self.min_margin, min(new_x, self.image.width - wm_w - self.min_margin))
             new_y = max(self.min_margin, min(new_y, self.image.height - wm_h - self.min_margin))
 
-            self.watermark_pos = (new_x, new_y)
+            # 存为比例坐标
+            self.watermark_pos = (new_x / self.image.width, new_y / self.image.height)
             self.update()
 
     def mouseReleaseEvent(self, event):
@@ -114,19 +114,16 @@ class PreviewWidget(QLabel):
     def is_over_watermark(self, pos: QPoint):
         if not self.image or not self.watermark_text or not self.watermark_pos:
             return False
-
+        wm_x_px, wm_y_px = self.watermark_pos_to_pixels()
         scaled_w, scaled_h, x_offset, y_offset = self._get_scaled_geometry()
         ratio_w = scaled_w / self.image.width
         ratio_h = scaled_h / self.image.height
-
-        wx = x_offset + self.watermark_pos[0] * ratio_w
-        wy = y_offset + self.watermark_pos[1] * ratio_h
         wm_w, wm_h = self.get_watermark_size()
         wm_w *= ratio_w
         wm_h *= ratio_h
-
         x, y = pos.x(), pos.y()
-        return wx <= x <= wx + wm_w and wy <= y <= wy + wm_h
+        return wm_x_px * ratio_w + x_offset <= x <= wm_x_px * ratio_w + x_offset + wm_w and \
+               wm_y_px * ratio_h + y_offset <= y <= wm_y_px * ratio_h + y_offset + wm_h
 
     # ------------------- 水印尺寸 -------------------
     def get_watermark_size(self):
@@ -145,25 +142,37 @@ class PreviewWidget(QLabel):
             w, h = draw.textsize(self.watermark_text, font=font)
         return w, h
 
-    # ------------------- 水印位置预设 -------------------
-    def set_watermark_position_preset(self, position_name):
+    # ------------------- 九宫格预设 -------------------
+    def set_watermark_position_preset(self, position_name: str):
         if not self.image or not self.watermark_text:
             return
-        img_w, img_h = self.image.width, self.image.height
         wm_w, wm_h = self.get_watermark_size()
-        positions = {
-            "top-left": (self.min_margin, self.min_margin),
-            "top-right": (img_w - wm_w - self.min_margin, self.min_margin),
-            "bottom-left": (self.min_margin, img_h - wm_h - self.min_margin - self.bottom_offset),
-            "bottom-right": (img_w - wm_w - self.min_margin,
-                             img_h - wm_h - self.min_margin - self.bottom_offset),
-            "center": ((img_w - wm_w)//2, (img_h - wm_h)//2),
+        img_w, img_h = self.image.width, self.image.height
+        margin = self.min_margin
+
+        positions_px = {
+            "top-left": (margin, margin),
+            "top-right": (img_w - wm_w - margin, margin),
+            "bottom-left": (margin, img_h - wm_h - margin),
+            "bottom-right": (img_w - wm_w - margin, img_h - wm_h - margin),
+            "center": ((img_w - wm_w) / 2, (img_h - wm_h) / 2),
         }
-        x, y = positions.get(position_name, positions["center"])
-        x = max(self.min_margin, min(x, img_w - wm_w - self.min_margin))
-        y = max(self.min_margin, min(y, img_h - wm_h - self.min_margin))
-        self.watermark_pos = (x, y)
+
+        x_px, y_px = positions_px.get(position_name, positions_px["center"])
+        self.watermark_pos = (x_px / img_w, y_px / img_h)
         self.update()
+
+    def watermark_pos_to_pixels(self):
+        """将比例坐标转换为像素坐标"""
+        if not self.image or not self.watermark_pos:
+            return 0, 0
+        x_px = self.watermark_pos[0] * self.image.width
+        y_px = self.watermark_pos[1] * self.image.height
+        wm_w, wm_h = self.get_watermark_size()
+        # 防止越界
+        x_px = min(x_px, self.image.width - wm_w - 1)
+        y_px = min(y_px, self.image.height - wm_h - 1)
+        return x_px, y_px
 
     # ------------------- 绘制 -------------------
     def paintEvent(self, event):
@@ -181,24 +190,18 @@ class PreviewWidget(QLabel):
             painter.drawPixmap(int(x_offset), int(y_offset), scaled_pixmap)
 
             if self.watermark_text and self.watermark_pos:
+                wm_x_px, wm_y_px = self.watermark_pos_to_pixels()
                 ratio_w = scaled_w / self.image.width
                 ratio_h = scaled_h / self.image.height
-                wm_x = x_offset + self.watermark_pos[0] * ratio_w
-                wm_y = y_offset + self.watermark_pos[1] * ratio_h
+                draw_x = x_offset + wm_x_px * ratio_w
+                draw_y = y_offset + wm_y_px * ratio_h
 
                 font = QFont(self.font_family, max(int(self.font_size * ratio_h), 1))
                 font.setBold(self.bold)
                 font.setItalic(self.italic)
                 painter.setFont(font)
                 painter.setPen(self.color)
-                painter.drawText(int(wm_x), int(wm_y + font.pointSize()), self.watermark_text)
-
-                if self.show_watermark_box:
-                    wm_w, wm_h = self.get_watermark_size()
-                    wm_w *= ratio_w
-                    wm_h *= ratio_h
-                    painter.setPen(QColor(255, 0, 0, 180))
-                    painter.drawRect(int(wm_x), int(wm_y), int(wm_w), int(wm_h))
+                painter.drawText(int(draw_x), int(draw_y + font.pointSize()), self.watermark_text)
         else:
             painter.setPen(Qt.GlobalColor.gray)
             painter.drawText(self.rect(), Qt.AlignmentFlag.AlignCenter, self.hint_text)

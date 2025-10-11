@@ -161,8 +161,9 @@ class TextWatermarkSettings(QWidget):
 
     # ---------------- 拖拽水印 ----------------
     def on_drag_position(self, coord):
+        """接收 PreviewWidget 拖拽后位置"""
         self.watermark_pos = coord
-        self.clear_grid_selection()
+        self.clear_grid_selection()  # 清除九宫格按钮选中
         self.position_changed.emit(coord)
         self.emit_settings()
 
@@ -181,6 +182,7 @@ class TextWatermarkSettings(QWidget):
                 int(255 * (self.opacity_slider.value() / 100)),
             ),
             "opacity": self.opacity_slider.value() / 100.0,
+            "position": self.watermark_pos,  # 保证保存最新拖拽位置
         }
 
     def emit_settings(self):
@@ -230,7 +232,7 @@ class TextWatermarkSettings(QWidget):
                 int(255 * settings["opacity"]),
             ),
             "opacity": settings["opacity"],
-            "position": self.watermark_pos,
+            "position": self.watermark_pos,  # 保存拖拽位置
         }
         if self.template_manager.save_template(name, template_data):
             self.update_template_list()

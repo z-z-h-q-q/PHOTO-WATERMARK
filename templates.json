@@ -3,36 +3,18 @@
     "text": "test00",
     "font_family": "Times New Roman",
     "font_size": 38,
-    "bold": false,
+    "bold": true,
     "italic": true,
     "color": [
-      255,
-      255,
+      230,
+      44,
       255,
       255
     ],
     "opacity": 1.0,
     "position": [
-      0.5,
-      0.5
-    ]
-  },
-  "01": {
-    "text": "test01",
-    "font_family": "SimHei",
-    "font_size": 36,
-    "bold": true,
-    "italic": false,
-    "color": [
-      170,
-      85,
-      0,
-      96
-    ],
-    "opacity": 0.38,
-    "position": [
-      0.0,
-      1.0
+      0.26164513238524695,
+      0.7567877590919068
     ]
   }
 }

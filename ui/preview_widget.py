@@ -49,6 +49,7 @@ class PreviewWidget(QLabel):
             self.italic = self.current_settings.get("italic", False)
             color = self.current_settings.get("color", (255, 255, 255, 180))
             self.color = QColor(*color)
+            self.watermark_pos = self.current_settings.get("position", None)
         else:
             self.watermark_text = ""
 

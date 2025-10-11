@@ -60,6 +60,7 @@ class MainWindow(QMainWindow):
         self.text_settings = TextWatermarkSettings()
         self.text_settings.settings_changed.connect(lambda s: self.update_text_preview(s))
         self.text_settings.position_changed.connect(self.on_position_changed)
+        self.preview.watermark_moved.connect(self.text_settings.on_drag_position)
         bottom_layout.addWidget(self.text_settings)
 
         # ---------------- 导出设置 ----------------
